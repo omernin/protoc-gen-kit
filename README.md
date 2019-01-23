@@ -1,3 +1,5 @@
+# DO NOT USE CURRENTLY UNDER DEVELOPMENT
+
 # protoc-gen-kit
 
 This is a fork of protoc-gen-micro. Inspired by go-micro we are using code generation to reduce go-kit boilerplate code.
