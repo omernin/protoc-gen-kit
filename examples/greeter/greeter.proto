@@ -1,13 +1,26 @@
 syntax = "proto3";
 
+package greetergrpc;
+
+option go_package = "github.com/serkangunes/protoc-gen-kit.git";
+
 service Greeter {
-	rpc Hello(Request) returns (Response) {}
+	rpc Hello(HelloRequest) returns (HelloResponse) {}
+	rpc Goodbye(GoodbyeRequest) returns (GoodbyeResponse) {}
 }
 
-message Request {
+message HelloRequest {
 	string name = 1;
 }
 
-message Response {
+message HelloResponse {
+	string msg = 1;
+}
+
+message GoodbyeRequest {
+	string name = 1;
+}
+
+message GoodbyeResponse {
 	string msg = 1;
 }
