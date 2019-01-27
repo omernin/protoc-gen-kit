@@ -13,10 +13,18 @@ import (
 // relative to the import_prefix of the generator.Generator.
 const (
 	contextPkgPath   = "context"
+	osPkgPath        = "os"
+	osSignalPkgPath  = "os/signal"
+	syscallPkgPath   = "syscall"
 	timePkgPath      = "time"
+	netPkgPath       = "net"
+	netHTTPPkgPath   = "net/http"
 	goKitPkgPath     = "github.com/go-kit/kit/endpoint"
 	goKitGRPCPkgPath = "github.com/go-kit/kit/transport/grpc"
 	goKitLogPkgPath  = "github.com/go-kit/kit/log"
+	groupLogPkgPath  = "github.com/oklog/oklog/pkg/group"
+	grpcPkgPath      = "google.golang.org/grpc"
+	promHTTPPkgPath  = "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func init() {
@@ -83,6 +91,8 @@ func (g *kit) Generate(file *generator.FileDescriptor) {
 		g.generateEndpoints(file, service, i)
 		g.P()
 		g.generateGRPCServer(file, service, i)
+		g.P()
+		g.generateMainHelperFunctions(file, service, i)
 	}
 }
 
@@ -93,10 +103,18 @@ func (g *kit) GenerateImports(file *generator.FileDescriptor) {
 	}
 	g.P("import (")
 	g.P(contextPkg, " ", strconv.Quote(path.Join(g.gen.ImportPrefix, contextPkgPath)))
-	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, "time")))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, timePkgPath)))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, netPkgPath)))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, netHTTPPkgPath)))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, osPkgPath)))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, osSignalPkgPath)))
 	g.P(goKitPkg, " ", strconv.Quote(path.Join(g.gen.ImportPrefix, goKitPkgPath)))
 	g.P(goKitGRPCPkg, " ", strconv.Quote(path.Join(g.gen.ImportPrefix, goKitGRPCPkgPath)))
 	g.P(goKitLogPkg, " ", strconv.Quote(path.Join(g.gen.ImportPrefix, goKitLogPkgPath)))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, groupLogPkgPath)))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, grpcPkgPath)))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, promHTTPPkgPath)))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, syscallPkgPath)))
 	g.P(")")
 	g.P()
 }
@@ -186,7 +204,7 @@ func (g *kit) generateEndpoints(file *generator.FileDescriptor, service *pb.Serv
 
 	g.P("// New returns a Endpoints struct that wraps the provided service, and wires in all of the")
 	g.P("// expected endpoint middlewares")
-	g.P("func New(handler ", capitalServiceName, "Server, middlewares map[string][]", goKitPkg, ".Middleware) Endpoints {")
+	g.P("func NewEndpoints(handler ", capitalServiceName, "Server, middlewares map[string][]", goKitPkg, ".Middleware) Endpoints {")
 	g.P("endpoints := Endpoints{")
 
 	for _, method := range service.Method {
@@ -256,5 +274,99 @@ func (g *kit) generateGRPCServer(file *generator.FileDescriptor, service *pb.Ser
 		g.P("),")
 	}
 	g.P("}")
+	g.P("}")
+}
+
+// generateMainHelperFunctions creates the helper methods for main which uses the default values. If you need to customise this you need to set
+// everything manually
+func (g *kit) generateMainHelperFunctions(file *generator.FileDescriptor, service *pb.ServiceDescriptorProto, index int) {
+	originalServiceName := service.GetName()
+	capitalServiceName := generator.CamelCase(originalServiceName)
+
+	g.P("/////////////////////////////////////////////////////////////////////")
+	g.P("// Go-kit grpc main helper functions ", capitalServiceName, " service")
+	g.P("/////////////////////////////////////////////////////////////////////")
+	g.P()
+
+	g.P("func RunServer(logger ", goKitLogPkg, ".Logger, grpcAddr, debugAddr string, handler ", capitalServiceName, "Server) {")
+	g.P("endpoints := NewEndpoints(handler, nil)")
+	g.P("group := createService(endpoints, logger, grpcAddr)")
+	g.P("initMetricsEndpoint(debugAddr, logger, group)")
+	g.P("initCancelInterrupt(group)")
+	g.P("logger.Log(\"exit\", group.Run())")
+	g.P("}")
+	g.P()
+
+	g.P("func GetServiceMiddlewares(logger ", goKitLogPkg, ".Logger) (middlewares []Middleware) {")
+	g.P("middlewares = []Middleware{}")
+	g.P("return append(middlewares, LoggingMiddleware(logger))")
+	g.P("}")
+	g.P()
+
+	g.P("func createService(endpoints Endpoints, logger ", goKitLogPkg, ".Logger, grpcAddr string) (g *group.Group) {")
+	g.P("g = &group.Group{}")
+	g.P("initGRPCHandler(endpoints, logger, grpcAddr, g)")
+	g.P("return g")
+	g.P("}")
+	g.P()
+
+	g.P("func defaultGRPCOptions(logger ", goKitLogPkg, ".Logger) map[string][]", goKitGRPCPkg, ".ServerOption {")
+	g.P("options := map[string][]kitgrpc.ServerOption{")
+	for _, method := range service.Method {
+		g.P("\"", method.Name, "\":   {kitgrpc.ServerErrorLogger(logger)},")
+	}
+	g.P("}")
+	g.P("return options")
+	g.P("}")
+	g.P()
+
+	g.P("func initGRPCHandler(endpoints Endpoints, logger ", goKitLogPkg, ".Logger, grpcAddr string, g *group.Group) {")
+	g.P("options := defaultGRPCOptions(logger)")
+	g.P()
+	g.P("grpcServer := NewGRPCServer(endpoints, options)")
+	g.P("grpcListener, err := net.Listen(\"tcp\", grpcAddr)")
+	g.P("if err != nil {")
+	g.P("logger.Log(\"transport\", \"gRPC\", \"during\", \"Listen\", \"err\", err)")
+	g.P("}")
+	g.P("g.Add(func() error {")
+	g.P("logger.Log(\"transport\", \"gRPC\", \"addr\", grpcAddr)")
+	g.P("baseServer := grpc.NewServer()")
+	g.P("Register", capitalServiceName, "Server(baseServer, grpcServer)")
+	g.P("return baseServer.Serve(grpcListener)")
+	g.P("}, func(error) {")
+	g.P("grpcListener.Close()")
+	g.P("})")
+	g.P("}")
+	g.P()
+
+	g.P("func initMetricsEndpoint(debugAddr string, logger ", goKitLogPkg, ".Logger, g *group.Group) {")
+	g.P("http.DefaultServeMux.Handle(\"/metrics\", promhttp.Handler())")
+	g.P("debugListener, err := net.Listen(\"tcp\", debugAddr)")
+	g.P("if err != nil {")
+	g.P("logger.Log(\"transport\", \"debug/HTTP\", \"during\", \"Listen\", \"err\", err)")
+	g.P("}")
+	g.P("g.Add(func() error {")
+	g.P("logger.Log(\"transport\", \"debug/HTTP\", \"addr\", debugAddr)")
+	g.P("return http.Serve(debugListener, http.DefaultServeMux)")
+	g.P("}, func(error) {")
+	g.P("debugListener.Close()")
+	g.P("})")
+	g.P("}")
+	g.P()
+
+	g.P("func initCancelInterrupt(g *group.Group) {")
+	g.P("cancelInterrupt := make(chan struct{})")
+	g.P("g.Add(func() error {")
+	g.P("c := make(chan os.Signal, 1)")
+	g.P("signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)")
+	g.P("select {")
+	g.P("case sig := <-c:")
+	g.P("return fmt.Errorf(\"received signal %s\", sig)")
+	g.P("case <-cancelInterrupt:")
+	g.P("return nil")
+	g.P("}")
+	g.P("}, func(error) {")
+	g.P("close(cancelInterrupt)")
+	g.P("})")
 	g.P("}")
 }
