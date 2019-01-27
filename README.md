@@ -14,6 +14,10 @@ Also required:
 
 - [protoc](https://github.com/google/protobuf)
 - [protoc-gen-go](https://github.com/golang/protobuf)
+- [go-kit](github.com/go-kit/kit)
+- [oklog](github.com/oklog/oklog)
+- [prometheus-client](github.com/prometheus/client_golang)
+- [gRpc](google.golang.org/grpc)
 
 ## Usage
 
