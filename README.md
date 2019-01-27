@@ -42,7 +42,7 @@ message Response {
 Generate the code
 
 ```bash
-protoc --proto_path=$GOPATH/src:. --kit_out=. --go_out=. greeter.proto
+protoc --proto_path=$GOPATH/src:. --kit_out=. --go_out=plugins=grpc:. greeter.proto
 ```
 
 Your output result should be:
