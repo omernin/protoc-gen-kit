@@ -181,10 +181,10 @@ func NewGRPCServer(endpoints Endpoints, options map[string][]kitgrpc.ServerOptio
 // Go-kit grpc main helper functions Greeter service
 /////////////////////////////////////////////////////////////////////
 
-func RunServer(logger kitlog.Logger, grpcAddr, debugAddr string, handler GreeterServer) {
+func RunServer(logger, errorLogger kitlog.Logger, grpcAddr, debugAddr string, handler GreeterServer) {
 	endpoints := NewEndpoints(handler, nil)
-	group := createService(endpoints, logger, grpcAddr)
-	initMetricsEndpoint(debugAddr, logger, group)
+	group := createService(endpoints, logger, errorLogger, grpcAddr)
+	initMetricsEndpoint(debugAddr, logger, errorLogger, group)
 	initCancelInterrupt(group)
 	logger.Log("exit", group.Run())
 }
@@ -194,27 +194,27 @@ func GetServiceMiddlewares(logger kitlog.Logger) (middlewares []Middleware) {
 	return append(middlewares, LoggingMiddleware(logger))
 }
 
-func createService(endpoints Endpoints, logger kitlog.Logger, grpcAddr string) (g *group.Group) {
+func createService(endpoints Endpoints, logger, errorLogger kitlog.Logger, grpcAddr string) (g *group.Group) {
 	g = &group.Group{}
-	initGRPCHandler(endpoints, logger, grpcAddr, g)
+	initGRPCHandler(endpoints, logger, errorLogger, grpcAddr, g)
 	return g
 }
 
-func defaultGRPCOptions(logger kitlog.Logger) map[string][]kitgrpc.ServerOption {
+func defaultGRPCOptions(errorLogger kitlog.Logger) map[string][]kitgrpc.ServerOption {
 	options := map[string][]kitgrpc.ServerOption{
-		"Hello":   {kitgrpc.ServerErrorLogger(logger)},
-		"Goodbye": {kitgrpc.ServerErrorLogger(logger)},
+		"Hello":   {kitgrpc.ServerErrorLogger(errorLogger)},
+		"Goodbye": {kitgrpc.ServerErrorLogger(errorLogger)},
 	}
 	return options
 }
 
-func initGRPCHandler(endpoints Endpoints, logger kitlog.Logger, grpcAddr string, g *group.Group) {
-	options := defaultGRPCOptions(logger)
+func initGRPCHandler(endpoints Endpoints, logger, errorLogger kitlog.Logger, grpcAddr string, g *group.Group) {
+	options := defaultGRPCOptions(errorLogger)
 
 	grpcServer := NewGRPCServer(endpoints, options)
 	grpcListener, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
-		logger.Log("transport", "gRPC", "during", "Listen", "err", err)
+		errorLogger.Log("transport", "gRPC", "during", "Listen", "err", err)
 	}
 	g.Add(func() error {
 		logger.Log("transport", "gRPC", "addr", grpcAddr)
@@ -226,11 +226,11 @@ func initGRPCHandler(endpoints Endpoints, logger kitlog.Logger, grpcAddr string,
 	})
 }
 
-func initMetricsEndpoint(debugAddr string, logger kitlog.Logger, g *group.Group) {
+func initMetricsEndpoint(debugAddr string, logger, errorLogger kitlog.Logger, g *group.Group) {
 	http.DefaultServeMux.Handle("/metrics", promhttp.Handler())
 	debugListener, err := net.Listen("tcp", debugAddr)
 	if err != nil {
-		logger.Log("transport", "debug/HTTP", "during", "Listen", "err", err)
+		errorLogger.Log("transport", "debug/HTTP", "during", "Listen", "err", err)
 	}
 	g.Add(func() error {
 		logger.Log("transport", "debug/HTTP", "addr", debugAddr)
