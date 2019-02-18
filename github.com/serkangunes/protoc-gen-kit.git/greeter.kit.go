@@ -150,13 +150,19 @@ type grpcServer struct {
 //Hello implementation
 func (s *grpcServer) Hello(ctx context.Context, r *HelloRequest) (*HelloResponse, error) {
 	_, response, err := s.hellotransport.ServeGRPC(ctx, r)
-	return response.(*HelloResponse), err
+	if err != nil {
+		return nil, err
+	}
+	return response.(*HelloResponse), nil
 }
 
 //Goodbye implementation
 func (s *grpcServer) Goodbye(ctx context.Context, r *GoodbyeRequest) (*GoodbyeResponse, error) {
 	_, response, err := s.goodbyetransport.ServeGRPC(ctx, r)
-	return response.(*GoodbyeResponse), err
+	if err != nil {
+		return nil, err
+	}
+	return response.(*GoodbyeResponse), nil
 }
 
 //NewGRPCServer create new grpc server

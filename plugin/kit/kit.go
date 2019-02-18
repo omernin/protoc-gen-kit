@@ -257,7 +257,10 @@ func (g *kit) generateGRPCServer(file *generator.FileDescriptor, service *pb.Ser
 		g.P("//", method.Name, " implementation")
 		g.P("func (s *grpcServer) ", method.Name, "(ctx context.Context, r *", g.typeName(method.GetInputType()), ") (*", g.typeName(method.GetOutputType()), ", error) {")
 		g.P("_, response, err := s.", strings.ToLower(*method.Name), "transport.ServeGRPC(ctx, r)")
-		g.P("return response.(*", g.typeName(method.GetOutputType()), "), err")
+		g.P("if err != nil {")
+		g.P("return nil, err")
+		g.P("}")
+		g.P("return response.(*", g.typeName(method.GetOutputType()), "), nil")
 		g.P("}")
 		g.P()
 	}
