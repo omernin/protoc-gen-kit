@@ -195,6 +195,21 @@ func RunServer(logger, errorLogger kitlog.Logger, grpcAddr, debugAddr string, ha
 	logger.Log("exit", group.Run())
 }
 
+func Client(address string, insecure bool, timeoutInSeconds time.Duration) (GreeterClient, *grpc.ClientConn, error) {
+	var conn *grpc.ClientConn
+	var err error
+	if insecure {
+		conn, err = grpc.Dial(address, grpc.WithInsecure(), grpc.WithTimeout(timeoutInSeconds*time.Second))
+	} else {
+		conn, err = grpc.Dial(address, grpc.WithTimeout(timeoutInSeconds*time.Second))
+	}
+
+	if err != nil {
+		return nil, nil, err
+	}
+	return NewGreeterClient(conn), conn, nil
+}
+
 func GetServiceMiddlewares(logger kitlog.Logger) (middlewares []Middleware) {
 	middlewares = []Middleware{}
 	return append(middlewares, LoggingMiddleware(logger))
