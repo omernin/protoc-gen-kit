@@ -300,7 +300,7 @@ func (g *kit) generateMainHelperFunctions(file *generator.FileDescriptor, servic
 	g.P("}")
 	g.P()
 
-	g.P("func Client(address string, insecure bool, timeoutInSeconds time.Duration) (", capitalServiceName, "Client, *grpc.ClientConn, error) {")
+	g.P("func GetClient(address string, insecure bool, timeoutInSeconds time.Duration) (", capitalServiceName, "Client, *grpc.ClientConn, error) {")
 	g.P("var conn *grpc.ClientConn")
 	g.P("var err error")
 	g.P("if insecure {")
