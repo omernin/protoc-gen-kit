@@ -183,6 +183,40 @@ func (g *kit) generateMiddleware(file *generator.FileDescriptor, service *pb.Ser
 	}
 
 	g.P()
+	g.P("type ", lowerCaseServiceName, "ValidationMiddleware struct {")
+	g.P("logger ", goKitLogPkg, ".Logger")
+	g.P("next ", capitalServiceName, "Server")
+	g.P("Unimplemented", capitalServiceName, "Server")
+	g.P("}")
+	g.P()
+	g.P("// ", originalServiceName, "ValidationMiddleware takes a logger as a dependency")
+	g.P("// and returns a ", capitalServiceName, "Server Middleware.")
+	g.P("func ", capitalServiceName, "ValidationMiddleware(logger ", goKitLogPkg, ".Logger)", capitalServiceName, "Middleware {")
+	g.P("return func(next ", capitalServiceName, "Server) ", capitalServiceName, "Server {")
+	g.P("return &", lowerCaseServiceName, "ValidationMiddleware{logger:logger, next:next}")
+	g.P("}")
+	g.P("}")
+	for _, method := range service.Method {
+		g.P("func (l ", lowerCaseServiceName, "ValidationMiddleware) ", method.Name, "(ctx context.Context, request *", g.typeName(method.GetInputType()), ") (response *", g.typeName(method.GetOutputType()), ", err error) {")
+		g.P(`if err := request.Validate(); err != nil {
+				l.logger.Log("message", "request validation failed", "method", "`, method.Name, `", "error", err)
+				return nil, err
+			}
+			response, err = l.next.`, method.Name, `(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			err = response.Validate()
+			if err != nil {
+				l.logger.Log("message", "response validation failed", "method", "`, method.Name, `", "error", err)
+				return nil, err
+			}
+			return response, nil
+		}
+			`)
+	}
+
+	g.P()
 	g.P("type ", lowerCaseServiceName, "RecoveryMiddleware struct {")
 	g.P("logger ", goKitLogPkg, ".Logger")
 	g.P("next ", capitalServiceName, "Server")
@@ -375,6 +409,7 @@ func (g *kit) generateMainHelperFunctions(file *generator.FileDescriptor, servic
 	g.P("func Get", capitalServiceName, "ServiceMiddlewares(logger ", goKitLogPkg, ".Logger) (middlewares []", capitalServiceName, "Middleware) {")
 	g.P("middlewares = []", capitalServiceName, "Middleware{}")
 	g.P("middlewares = append(middlewares, ", capitalServiceName, "LoggingMiddleware(logger))")
+	g.P("middlewares = append(middlewares, ", capitalServiceName, "ValidationMiddleware(logger))")
 	g.P("middlewares = append(middlewares, ", capitalServiceName, "RecoveryMiddleware(logger))")
 	g.P("return middlewares")
 	g.P("}")

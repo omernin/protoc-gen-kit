@@ -84,6 +84,53 @@ func (l greeterLoggingMiddleware) Goodbye(ctx context.Context, request *GoodbyeR
 	return l.next.Goodbye(ctx, request)
 }
 
+type greeterValidationMiddleware struct {
+	logger kitlog.Logger
+	next   GreeterServer
+	UnimplementedGreeterServer
+}
+
+// GreeterValidationMiddleware takes a logger as a dependency
+// and returns a GreeterServer Middleware.
+func GreeterValidationMiddleware(logger kitlog.Logger) GreeterMiddleware {
+	return func(next GreeterServer) GreeterServer {
+		return &greeterValidationMiddleware{logger: logger, next: next}
+	}
+}
+func (l greeterValidationMiddleware) Hello(ctx context.Context, request *HelloRequest) (response *HelloResponse, err error) {
+	if err := request.Validate(); err != nil {
+		l.logger.Log("message", "request validation failed", "method", "Hello", "error", err)
+		return nil, err
+	}
+	response, err = l.next.Hello(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	err = response.Validate()
+	if err != nil {
+		l.logger.Log("message", "response validation failed", "method", "Hello", "error", err)
+		return nil, err
+	}
+	return response, nil
+}
+
+func (l greeterValidationMiddleware) Goodbye(ctx context.Context, request *GoodbyeRequest) (response *GoodbyeResponse, err error) {
+	if err := request.Validate(); err != nil {
+		l.logger.Log("message", "request validation failed", "method", "Goodbye", "error", err)
+		return nil, err
+	}
+	response, err = l.next.Goodbye(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	err = response.Validate()
+	if err != nil {
+		l.logger.Log("message", "response validation failed", "method", "Goodbye", "error", err)
+		return nil, err
+	}
+	return response, nil
+}
+
 type greeterRecoveryMiddleware struct {
 	logger kitlog.Logger
 	next   GreeterServer
@@ -263,6 +310,7 @@ func GetGreeterClient(address string, isInsecure bool, timeout time.Duration) (G
 func GetGreeterServiceMiddlewares(logger kitlog.Logger) (middlewares []GreeterMiddleware) {
 	middlewares = []GreeterMiddleware{}
 	middlewares = append(middlewares, GreeterLoggingMiddleware(logger))
+	middlewares = append(middlewares, GreeterValidationMiddleware(logger))
 	middlewares = append(middlewares, GreeterRecoveryMiddleware(logger))
 	return middlewares
 }
