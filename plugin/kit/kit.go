@@ -4,27 +4,30 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"unicode"
 
 	pb "github.com/golang/protobuf/protoc-gen-go/descriptor"
-	"github.com/serkangunes/protoc-gen-kit/generator"
+	"github.com/omernin/protoc-gen-kit/generator"
 )
 
 // Paths for packages used by code generated in this file,
 // relative to the import_prefix of the generator.Generator.
 const (
-	contextPkgPath   = "context"
-	osPkgPath        = "os"
-	osSignalPkgPath  = "os/signal"
-	syscallPkgPath   = "syscall"
-	timePkgPath      = "time"
-	netPkgPath       = "net"
-	netHTTPPkgPath   = "net/http"
-	goKitPkgPath     = "github.com/go-kit/kit/endpoint"
-	goKitGRPCPkgPath = "github.com/go-kit/kit/transport/grpc"
-	goKitLogPkgPath  = "github.com/go-kit/kit/log"
-	groupLogPkgPath  = "github.com/oklog/oklog/pkg/group"
-	grpcPkgPath      = "google.golang.org/grpc"
-	promHTTPPkgPath  = "github.com/prometheus/client_golang/prometheus/promhttp"
+	contextPkgPath            = "context"
+	osPkgPath                 = "os"
+	osSignalPkgPath           = "os/signal"
+	syscallPkgPath            = "syscall"
+	timePkgPath               = "time"
+	netPkgPath                = "net"
+	netHTTPPkgPath            = "net/http"
+	goKitPkgPath              = "github.com/go-kit/kit/endpoint"
+	goKitGRPCPkgPath          = "github.com/go-kit/kit/transport/grpc"
+	goKitLogPkgPath           = "github.com/go-kit/kit/log"
+	groupLogPkgPath           = "github.com/oklog/oklog/pkg/group"
+	grpcPkgPath               = "google.golang.org/grpc"
+	grpcInsecurePkgPath       = "google.golang.org/grpc/credentials/insecure"
+	promHTTPPkgPath           = "github.com/prometheus/client_golang/prometheus/promhttp"
+	grpcGatewayRuntimePkgPath = "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 )
 
 func init() {
@@ -113,7 +116,9 @@ func (g *kit) GenerateImports(file *generator.FileDescriptor) {
 	g.P(goKitLogPkg, " ", strconv.Quote(path.Join(g.gen.ImportPrefix, goKitLogPkgPath)))
 	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, groupLogPkgPath)))
 	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, grpcPkgPath)))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, grpcInsecurePkgPath)))
 	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, promHTTPPkgPath)))
+	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, grpcGatewayRuntimePkgPath)))
 	g.P(strconv.Quote(path.Join(g.gen.ImportPrefix, syscallPkgPath)))
 	g.P(")")
 	g.P()
@@ -131,32 +136,40 @@ func unexport(s string) string {
 	return strings.ToLower(s[:1]) + s[1:]
 }
 
+func lowerCaseName(s string) string {
+	runes := []rune(s)
+	runes[0] = unicode.ToLower(runes[0])
+	return string(runes)
+}
+
 // generateMIddleware generates standard middlewares for the go-kit services
 func (g *kit) generateMiddleware(file *generator.FileDescriptor, service *pb.ServiceDescriptorProto, index int) {
 	originalServiceName := service.GetName()
 	capitalServiceName := generator.CamelCase(originalServiceName)
+	lowerCaseServiceName := lowerCaseName(capitalServiceName)
 
 	g.P("//////////////////////////////////////////////////////////")
 	g.P("// Go-kit middlewares for ", capitalServiceName, " service")
 	g.P("//////////////////////////////////////////////////////////")
 	g.P()
 
-	g.P("type Middleware func(", capitalServiceName, "Server) ", capitalServiceName, "Server")
+	g.P("type ", capitalServiceName, "Middleware func(", capitalServiceName, "Server) ", capitalServiceName, "Server")
 	g.P()
-	g.P("type loggingMiddleware struct {")
+	g.P("type ", lowerCaseServiceName, "LoggingMiddleware struct {")
 	g.P("logger ", goKitLogPkg, ".Logger")
 	g.P("next ", capitalServiceName, "Server")
+	g.P("Unimplemented", capitalServiceName, "Server")
 	g.P("}")
 	g.P()
-	g.P("// LoggingMiddleware takes a logger as a dependency")
+	g.P("// ", originalServiceName, "LoggingMiddleware takes a logger as a dependency")
 	g.P("// and returns a ", capitalServiceName, "Server Middleware.")
-	g.P("func LoggingMiddleware(logger ", goKitLogPkg, ".Logger) Middleware {")
+	g.P("func ", capitalServiceName, "LoggingMiddleware(logger ", goKitLogPkg, ".Logger)", capitalServiceName, "Middleware {")
 	g.P("return func(next ", capitalServiceName, "Server) ", capitalServiceName, "Server {")
-	g.P("return &loggingMiddleware{logger, next}")
+	g.P("return &", lowerCaseServiceName, "LoggingMiddleware{logger:logger, next:next}")
 	g.P("}")
 	g.P("}")
 	for _, method := range service.Method {
-		g.P("func (l loggingMiddleware) ", method.Name, "(ctx context.Context, request *", g.typeName(method.GetInputType()), ") (response *", g.typeName(method.GetOutputType()), ", err error) {")
+		g.P("func (l ", lowerCaseServiceName, "LoggingMiddleware) ", method.Name, "(ctx context.Context, request *", g.typeName(method.GetInputType()), ") (response *", g.typeName(method.GetOutputType()), ", err error) {")
 		g.P("defer func(begin time.Time) {")
 		g.P("l.logger.Log(")
 		g.P("\"method\", \"", method.Name, "\",")
@@ -165,6 +178,34 @@ func (g *kit) generateMiddleware(file *generator.FileDescriptor, service *pb.Ser
 		g.P("\"error\", err,")
 		g.P("\"took\", time.Since(begin))")
 		g.P("}(time.Now())")
+		g.P("return l.next.", method.Name, "(ctx, request)")
+		g.P("}")
+	}
+
+	g.P()
+	g.P("type ", lowerCaseServiceName, "RecoveryMiddleware struct {")
+	g.P("logger ", goKitLogPkg, ".Logger")
+	g.P("next ", capitalServiceName, "Server")
+	g.P("Unimplemented", capitalServiceName, "Server")
+	g.P("}")
+	g.P()
+	g.P("// ", originalServiceName, "RecoveryMiddleware takes a logger as a dependency")
+	g.P("// and returns a ", capitalServiceName, "Server Middleware.")
+	g.P("func ", capitalServiceName, "RecoveryMiddleware(logger ", goKitLogPkg, ".Logger)", capitalServiceName, "Middleware {")
+	g.P("return func(next ", capitalServiceName, "Server) ", capitalServiceName, "Server {")
+	g.P("return &", lowerCaseServiceName, "RecoveryMiddleware{logger:logger, next:next}")
+	g.P("}")
+	g.P("}")
+	for _, method := range service.Method {
+		g.P("func (l ", lowerCaseServiceName, "RecoveryMiddleware) ", method.Name, "(ctx context.Context, request *", g.typeName(method.GetInputType()), ") (response *", g.typeName(method.GetOutputType()), ", err error) {")
+		g.P("defer func() {")
+		g.P("if r := recover(); r != nil {")
+		g.P("l.logger.Log(")
+		g.P("\"method\", \"", method.Name, "\",")
+		g.P("\"message\", r)")
+		g.P("err = fmt.Errorf(\"%v\", r)")
+		g.P("}")
+		g.P("}()")
 		g.P("return l.next.", method.Name, "(ctx, request)")
 		g.P("}")
 	}
@@ -183,8 +224,8 @@ func (g *kit) generateEndpoints(file *generator.FileDescriptor, service *pb.Serv
 	g.P()
 
 	// Client structure.
-	g.P("//Endpoints stores all the enpoints of the service")
-	g.P("type Endpoints struct {")
+	g.P("//", capitalServiceName, "Endpoints stores all the enpoints of the service")
+	g.P("type ", capitalServiceName, "Endpoints struct {")
 	for _, method := range service.Method {
 		g.P(method.Name, "Endpoint ", goKitPkg, ".Endpoint")
 	}
@@ -192,7 +233,7 @@ func (g *kit) generateEndpoints(file *generator.FileDescriptor, service *pb.Serv
 	g.P()
 
 	for _, method := range service.Method {
-		g.P("func make", method.Name, "Endpoint(handler ", capitalServiceName, "Server)", goKitPkg, ".Endpoint {")
+		g.P("func make", capitalServiceName, method.Name, "Endpoint(handler ", capitalServiceName, "Server)", goKitPkg, ".Endpoint {")
 		g.P("return func(ctx ", contextPkg, ".Context, r interface{}) (interface{}, error) {")
 		g.P("request := r.(*", g.typeName(method.GetInputType()), ")")
 		g.P("response, err := handler.", method.Name, "(ctx, request)")
@@ -204,11 +245,11 @@ func (g *kit) generateEndpoints(file *generator.FileDescriptor, service *pb.Serv
 
 	g.P("// New returns a Endpoints struct that wraps the provided service, and wires in all of the")
 	g.P("// expected endpoint middlewares")
-	g.P("func NewEndpoints(handler ", capitalServiceName, "Server, middlewares map[string][]", goKitPkg, ".Middleware) Endpoints {")
-	g.P("endpoints := Endpoints{")
+	g.P("func New", capitalServiceName, "Endpoints(handler ", capitalServiceName, "Server, middlewares map[string][]", goKitPkg, ".Middleware) ", capitalServiceName, "Endpoints {")
+	g.P("endpoints := ", capitalServiceName, "Endpoints{")
 
 	for _, method := range service.Method {
-		g.P(method.Name, "Endpoint: make", method.Name, "Endpoint(handler),")
+		g.P(method.Name, "Endpoint: make", capitalServiceName, method.Name, "Endpoint(handler),")
 	}
 
 	g.P("}")
@@ -227,35 +268,37 @@ func (g *kit) generateEndpoints(file *generator.FileDescriptor, service *pb.Serv
 func (g *kit) generateGRPCServer(file *generator.FileDescriptor, service *pb.ServiceDescriptorProto, index int) {
 	originalServiceName := service.GetName()
 	capitalServiceName := generator.CamelCase(originalServiceName)
+	lowerCaseServiceName := lowerCaseName(capitalServiceName)
 
 	g.P("/////////////////////////////////////////////////////////////")
 	g.P("// Go-kit grpc transport for ", capitalServiceName, " service")
 	g.P("/////////////////////////////////////////////////////////////")
 	g.P()
 
-	g.P("//RequestDecoder empty request decoder just returns the same request")
-	g.P("func RequestDecoder(ctx context.Context, r interface{}) (interface{}, error) {")
+	g.P("//", capitalServiceName, "RequestDecoder empty request decoder just returns the same request")
+	g.P("func ", capitalServiceName, "RequestDecoder(ctx context.Context, r interface{}) (interface{}, error) {")
 	g.P("return r, nil")
 	g.P("}")
 	g.P()
 
-	g.P("//ResponseEncoder empty response encoder just returns the same response")
-	g.P("func ResponseEncoder(_ context.Context, r interface{}) (interface{}, error) {")
+	g.P("//", capitalServiceName, "ResponseEncoder empty response encoder just returns the same response")
+	g.P("func ", capitalServiceName, "ResponseEncoder(_ context.Context, r interface{}) (interface{}, error) {")
 	g.P("return r, nil")
 	g.P("}")
 	g.P()
 
-	g.P("type grpcServer struct {")
+	g.P("type ", lowerCaseServiceName, "GrpcServer struct {")
 	for _, method := range service.Method {
 		g.P(strings.ToLower(*method.Name), "transport ", goKitGRPCPkg, ".Handler")
 	}
+	g.P("Unimplemented", capitalServiceName, "Server")
 	g.P("}")
 	g.P()
 
 	g.P("// implement ", capitalServiceName, "Server Interface")
 	for _, method := range service.Method {
 		g.P("//", method.Name, " implementation")
-		g.P("func (s *grpcServer) ", method.Name, "(ctx context.Context, r *", g.typeName(method.GetInputType()), ") (*", g.typeName(method.GetOutputType()), ", error) {")
+		g.P("func (s *", lowerCaseServiceName, "GrpcServer) ", method.Name, "(ctx context.Context, r *", g.typeName(method.GetInputType()), ") (*", g.typeName(method.GetOutputType()), ", error) {")
 		g.P("_, response, err := s.", strings.ToLower(*method.Name), "transport.ServeGRPC(ctx, r)")
 		g.P("if err != nil {")
 		g.P("return nil, err")
@@ -266,13 +309,13 @@ func (g *kit) generateGRPCServer(file *generator.FileDescriptor, service *pb.Ser
 	}
 
 	g.P("//NewGRPCServer create new grpc server")
-	g.P("func NewGRPCServer(endpoints Endpoints, options map[string][]", goKitGRPCPkg, ".ServerOption) ", capitalServiceName, "Server {")
-	g.P("return &grpcServer{")
+	g.P("func New", capitalServiceName, "GRPCServer(endpoints ", capitalServiceName, "Endpoints, options map[string][]", goKitGRPCPkg, ".ServerOption) ", capitalServiceName, "Server {")
+	g.P("return &", lowerCaseServiceName, "GrpcServer{")
 	for _, method := range service.Method {
 		g.P(strings.ToLower(*method.Name), "transport: ", goKitGRPCPkg, ".NewServer(")
 		g.P("endpoints.", method.Name, "Endpoint,")
-		g.P("RequestDecoder,")
-		g.P("ResponseEncoder,")
+		g.P(capitalServiceName, "RequestDecoder,")
+		g.P(capitalServiceName, "ResponseEncoder,")
 		g.P("options[\"", method.Name, "\"]...,")
 		g.P("),")
 	}
@@ -285,28 +328,41 @@ func (g *kit) generateGRPCServer(file *generator.FileDescriptor, service *pb.Ser
 func (g *kit) generateMainHelperFunctions(file *generator.FileDescriptor, service *pb.ServiceDescriptorProto, index int) {
 	originalServiceName := service.GetName()
 	capitalServiceName := generator.CamelCase(originalServiceName)
+	lowerCaseServiceName := lowerCaseName(capitalServiceName)
 
 	g.P("/////////////////////////////////////////////////////////////////////")
 	g.P("// Go-kit grpc main helper functions ", capitalServiceName, " service")
 	g.P("/////////////////////////////////////////////////////////////////////")
 	g.P()
 
-	g.P("func RunServer(logger, errorLogger ", goKitLogPkg, ".Logger, grpcAddr, debugAddr string, handler ", capitalServiceName, "Server) {")
-	g.P("endpoints := NewEndpoints(handler, nil)")
-	g.P("group := createService(endpoints, logger, errorLogger, grpcAddr)")
-	g.P("initMetricsEndpoint(debugAddr, logger, errorLogger, group)")
-	g.P("initCancelInterrupt(group)")
+	g.P("func Run", capitalServiceName, "Server(logger, errorLogger ", goKitLogPkg, ".Logger, grpcAddr, httpAddr, debugAddr string, handler ", capitalServiceName, "Server, middlewares map[string][]", goKitPkg, ".Middleware) {")
+	g.P("endpoints := New", capitalServiceName, "Endpoints(handler, middlewares)")
+	g.P("group := ", lowerCaseServiceName, "CreateService(endpoints, logger, errorLogger, grpcAddr, httpAddr)")
+	g.P("init", capitalServiceName, "MetricsEndpoint(debugAddr, logger, errorLogger, group)")
+	g.P("init", capitalServiceName, "CancelInterrupt(group)")
 	g.P("logger.Log(\"exit\", group.Run())")
 	g.P("}")
 	g.P()
 
-	g.P("func GetClient(address string, insecure bool, timeoutInSeconds time.Duration) (", capitalServiceName, "Client, *grpc.ClientConn, error) {")
+	g.P(`func Run`, capitalServiceName, `ServerWithDefaults(logger, errorLogger `, goKitLogPkg, `.Logger, grpcAddr, httpAddr, debugAddr string, handler `, capitalServiceName, `Server) {
+	middlewares := Get`, capitalServiceName, `ServiceMiddlewares(logger)
+	for _, middleware := range middlewares {
+		handler = middleware(handler)
+	}
+	Run`, capitalServiceName, `Server(logger, errorLogger, grpcAddr, httpAddr, debugAddr, handler, nil)
+	}
+	`)
+
+	g.P("func Get", capitalServiceName, "Client(address string, isInsecure bool, timeout time.Duration) (", capitalServiceName, "Client, *grpc.ClientConn, error) {")
 	g.P("var conn *grpc.ClientConn")
 	g.P("var err error")
-	g.P("if insecure {")
-	g.P("conn, err = grpc.Dial(address, grpc.WithInsecure(), grpc.WithTimeout(timeoutInSeconds*time.Second))")
+	g.P("ctx, cancel := context.WithTimeout(context.Background(), timeout * time.Second)")
+	g.P("defer cancel()")
+	g.P()
+	g.P("if isInsecure {")
+	g.P("conn, err = grpc.DialContext(ctx, address, grpc.WithTransportCredentials(insecure.NewCredentials()))")
 	g.P("} else {")
-	g.P("conn, err = grpc.Dial(address, grpc.WithTimeout(timeoutInSeconds*time.Second))")
+	g.P("conn, err = grpc.DialContext(ctx, address)")
 	g.P("}")
 	g.P()
 	g.P("if err != nil {")
@@ -316,20 +372,24 @@ func (g *kit) generateMainHelperFunctions(file *generator.FileDescriptor, servic
 	g.P("}")
 	g.P()
 
-	g.P("func GetServiceMiddlewares(logger ", goKitLogPkg, ".Logger) (middlewares []Middleware) {")
-	g.P("middlewares = []Middleware{}")
-	g.P("return append(middlewares, LoggingMiddleware(logger))")
+	g.P("func Get", capitalServiceName, "ServiceMiddlewares(logger ", goKitLogPkg, ".Logger) (middlewares []", capitalServiceName, "Middleware) {")
+	g.P("middlewares = []", capitalServiceName, "Middleware{}")
+	g.P("middlewares = append(middlewares, ", capitalServiceName, "LoggingMiddleware(logger))")
+	g.P("middlewares = append(middlewares, ", capitalServiceName, "RecoveryMiddleware(logger))")
+	g.P("return middlewares")
 	g.P("}")
 	g.P()
 
-	g.P("func createService(endpoints Endpoints, logger, errorLogger ", goKitLogPkg, ".Logger, grpcAddr string) (g *group.Group) {")
+	g.P("func ", lowerCaseServiceName, "CreateService(endpoints ", capitalServiceName, "Endpoints, logger, errorLogger ", goKitLogPkg, ".Logger, grpcAddr, httpAddr string) (g *group.Group) {")
 	g.P("g = &group.Group{}")
-	g.P("initGRPCHandler(endpoints, logger, errorLogger, grpcAddr, g)")
+	g.P()
+	g.P("init", capitalServiceName, "GRPCHandler(endpoints, logger, errorLogger, grpcAddr, g)")
+	g.P("init", capitalServiceName, "HTTPHandler(endpoints, logger, errorLogger, grpcAddr, httpAddr, g)")
 	g.P("return g")
 	g.P("}")
 	g.P()
 
-	g.P("func defaultGRPCOptions(errorLogger ", goKitLogPkg, ".Logger) map[string][]", goKitGRPCPkg, ".ServerOption {")
+	g.P("func default", capitalServiceName, "GRPCOptions(errorLogger ", goKitLogPkg, ".Logger) map[string][]", goKitGRPCPkg, ".ServerOption {")
 	g.P("options := map[string][]kitgrpc.ServerOption{")
 	for _, method := range service.Method {
 		g.P("\"", method.Name, "\":   {kitgrpc.ServerErrorLogger(errorLogger)},")
@@ -339,26 +399,47 @@ func (g *kit) generateMainHelperFunctions(file *generator.FileDescriptor, servic
 	g.P("}")
 	g.P()
 
-	g.P("func initGRPCHandler(endpoints Endpoints, logger, errorLogger ", goKitLogPkg, ".Logger, grpcAddr string, g *group.Group) {")
-	g.P("options := defaultGRPCOptions(errorLogger)")
+	g.P("func init", capitalServiceName, "GRPCHandler(endpoints ", capitalServiceName, "Endpoints, logger, errorLogger ", goKitLogPkg, ".Logger, serviceAddr string, g *group.Group) {")
+	g.P("options := default", capitalServiceName, "GRPCOptions(errorLogger)")
 	g.P()
-	g.P("grpcServer := NewGRPCServer(endpoints, options)")
-	g.P("grpcListener, err := net.Listen(\"tcp\", grpcAddr)")
+	g.P("grpcServer := New", capitalServiceName, "GRPCServer(endpoints, options)")
+	g.P("listener, err := net.Listen(\"tcp\", serviceAddr)")
 	g.P("if err != nil {")
 	g.P("errorLogger.Log(\"transport\", \"gRPC\", \"during\", \"Listen\", \"err\", err)")
 	g.P("}")
+	g.P()
 	g.P("g.Add(func() error {")
-	g.P("logger.Log(\"transport\", \"gRPC\", \"addr\", grpcAddr)")
+	g.P("logger.Log(\"transport\", \"gRPC\", \"addr\", serviceAddr)")
 	g.P("baseServer := grpc.NewServer()")
 	g.P("Register", capitalServiceName, "Server(baseServer, grpcServer)")
-	g.P("return baseServer.Serve(grpcListener)")
+	g.P("return baseServer.Serve(listener)")
 	g.P("}, func(error) {")
-	g.P("grpcListener.Close()")
+	g.P("listener.Close()")
 	g.P("})")
 	g.P("}")
 	g.P()
 
-	g.P("func initMetricsEndpoint(debugAddr string, logger, errorLogger ", goKitLogPkg, ".Logger, g *group.Group) {")
+	g.P("func init", capitalServiceName, "HTTPHandler(endpoints ", capitalServiceName, "Endpoints, logger, errorLogger ", goKitLogPkg, ".Logger, grpcAddr, httpAddr string, g *group.Group) {")
+	g.P("g.Add(func() error {")
+	g.P("logger.Log(\"transport\", \"http\", \"addr\", httpAddr)")
+	g.P("ctx, cancel := context.WithCancel(context.Background())")
+	g.P("defer cancel()")
+	g.P("")
+	g.P("mux := runtime.NewServeMux()")
+	g.P("opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}")
+	g.P("err := Register", capitalServiceName, "HandlerFromEndpoint(ctx, mux, grpcAddr, opts)")
+	g.P("if err != nil {")
+	g.P("errorLogger.Log(\"transport\", \"http\", \"during\", \"Register", capitalServiceName, "HandlerFromEndpoint\", \"err\", err)")
+	g.P("return err")
+	g.P("}")
+	g.P("return http.ListenAndServe(httpAddr, mux)")
+	g.P("}, func(err error) {")
+	g.P("errorLogger.Log(\"transport\", \"http\", \"during\", \"ListenAndServe\", \"err\", err)")
+	g.P("})")
+	g.P("}")
+	g.P()
+
+	g.P("func init", capitalServiceName, "MetricsEndpoint(debugAddr string, logger, errorLogger ", goKitLogPkg, ".Logger, g *group.Group) {")
 	g.P("http.DefaultServeMux.Handle(\"/metrics\", promhttp.Handler())")
 	g.P("debugListener, err := net.Listen(\"tcp\", debugAddr)")
 	g.P("if err != nil {")
@@ -373,7 +454,7 @@ func (g *kit) generateMainHelperFunctions(file *generator.FileDescriptor, servic
 	g.P("}")
 	g.P()
 
-	g.P("func initCancelInterrupt(g *group.Group) {")
+	g.P("func init", capitalServiceName, "CancelInterrupt(g *group.Group) {")
 	g.P("cancelInterrupt := make(chan struct{})")
 	g.P("g.Add(func() error {")
 	g.P("c := make(chan os.Signal, 1)")
