@@ -2,11 +2,21 @@ syntax = "proto3";
 
 package greetergrpc;
 
-option go_package = "github.com/serkangunes/protoc-gen-kit.git";
+import "google/api/annotations.proto";
+
+option go_package = "github.com/omernin/protoc-gen-kit/v1";
 
 service Greeter {
-	rpc Hello(HelloRequest) returns (HelloResponse) {}
-	rpc Goodbye(GoodbyeRequest) returns (GoodbyeResponse) {}
+	rpc Hello(HelloRequest) returns (HelloResponse) {
+		option (google.api.http) = {
+			get: "/api/v1/hello"
+		  };
+	}
+	rpc Goodbye(GoodbyeRequest) returns (GoodbyeResponse) {
+		option (google.api.http) = {
+			get: "/goodbye"
+		  };
+	}
 }
 
 message HelloRequest {
