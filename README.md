@@ -1,11 +1,12 @@
 # protoc-gen-kit
 
 This is a fork of protoc-gen-micro. Inspired by go-micro we are using code generation to reduce go-kit boilerplate code.
+In addition, we are generating grpc-gateway code that integrates with go-kit.
 
 ## Install
 
 ```bash
-go get github.com/serkangunes/protoc-gen-kit
+go get github.com/omernin/protoc-gen-kit
 ```
 
 Also required:
@@ -16,6 +17,8 @@ Also required:
 - [oklog](github.com/oklog/oklog)
 - [prometheus-client](github.com/prometheus/client_golang)
 - [gRpc](google.golang.org/grpc)
+- [gRpc gateway](https://github.com/grpc-ecosystem/grpc-gateway)
+- [docker-protoc](https://github.com/namely/docker-protoc)
 
 ## Usage
 
@@ -24,17 +27,41 @@ Define your service as `greeter.proto`
 ```proto
 syntax = "proto3";
 
+package greetergrpc;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/omernin/protoc-gen-kit/v1";
+
 service Greeter {
-    rpc Hello(Request) returns (Response) {}
+	rpc Hello(HelloRequest) returns (HelloResponse) {
+		option (google.api.http) = {
+			get: "/api/v1/hello"
+		  };
+	}
+	rpc Goodbye(GoodbyeRequest) returns (GoodbyeResponse) {
+		option (google.api.http) = {
+			get: "/goodbye"
+		  };
+	}
 }
 
-message Request {
-    string name = 1;
+message HelloRequest {
+	string name = 1;
 }
 
-message Response {
-    string msg = 1;
+message HelloResponse {
+	string msg = 1;
 }
+
+message GoodbyeRequest {
+	string name = 1;
+}
+
+message GoodbyeResponse {
+	string msg = 1;
+}
+
 ```
 
 Generate the code
@@ -63,6 +90,20 @@ Alternative specify the Go plugin paths as arguments to the `protoc` command
 ```bash
 protoc --plugin=protoc-gen-go=$GOPATH/bin/protoc-gen-go --plugin=protoc-gen-kit=$GOPATH/bin/protoc-gen-kit --proto_path=$GOPATH/src:. --micro_out=. --go_out=. greeter.proto
 ```
+
+### Run via docker
+
+In order to wrap the code generation code with a docker image, we use the `namely/protoc-all` image as a base image and add our protoc plugin + change the docker image entrypoint.sh file so we can generate go-kit code.
+
+The final image can be pulled via the image name: `omernin/protoc-all-with-kit`
+
+you can generate code via docker by running the following command:
+
+```bash
+docker run -v $(pwd):/defs/ omernin/protoc-all-with-kit -l go -f greeter.proto --with-gateway --with-validator --with-openapi-json-names --with-kit
+```
+
+for more information regarding `namely/protoc-all` please check the git repo at: https://github.com/namely/docker-protoc
 
 ## LICENSE
 
